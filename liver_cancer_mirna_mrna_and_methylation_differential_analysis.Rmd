@@ -1,0 +1,619 @@
+---
+title: "Mrna, Mirna and Methylation data liver cancer, differentially expressed analysis"
+author: "G.S.B"
+date: "2023-06-20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Loading all the necessary libraries for the differentially expressed analysis of Mirna MRNA Methylation data
+
+```{r}
+library(tidyverse) 
+library(RColorBrewer) 
+library(ggrepel) 
+library(DESeq2)
+library(data.table)
+library(RTCGAToolbox)
+library(dplyr)
+library(tibble)
+'if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma")'
+library(limma)
+'if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("MethylMix")'
+library(ggrepel)
+library(MethylMix)
+#library(DESeq2)
+```
+
+Reading the mirna and mrna files, and making the syntax of the sample names in both mirna and mrna files same as that in the survival file.
+
+```{r}
+mirna_data<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/mirna")
+mrna_data<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/exp")
+survival_data<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/survival")
+#fixing sample names for mirna and mrna data
+for(i in 2: length(colnames(mirna_data)))
+{
+  colnames(mirna_data)[i]<-gsub("\\.", "-", colnames(mirna_data)[i])
+  #group$sample[i]<-gsub("\\.", "-", group$sample[i])
+  #print(colnames(mirna)[i])
+}
+
+for(i in 2: length(colnames(mrna_data)))
+{
+  colnames(mrna_data)[i]<-gsub("\\.", "-", colnames(mrna_data)[i])
+  #group$sample[i]<-gsub("\\.", "-", group$sample[i])
+  #print(colnames(mirna)[i])
+}
+```
+storing the common samples in the mirna and survival data in mirna_data1
+mirna_data1<-select(mirna_data, all_of(intersect(colnames(mirna_data),survival_data$PatientID)))
+storing the common samples in the mrna and survival data in mrna_data1
+mrna_data1<-select(mrna_data, all_of(intersect(colnames(mrna_data),survival_data$PatientID)))
+storing the common samples in the survival data and mirna in survival_mirna
+
+
+selecting the samples which are common in mirna and survival file
+
+```{r}
+survival_mirna<-data.frame(PatientID=intersect(survival_data$PatientID,colnames(mirna_data)))
+survival_mirna$Death=NA
+survival_mirna$Survival=NA
+survival_mirna$co=NA
+for(i in survival_mirna$PatientID)
+{
+  for(j in survival_data$PatientID)
+  {
+    if(i==j)
+    {
+      survival_mirna$Death[survival_mirna$PatientID==i]=survival_data$Death[survival_data$PatientID==j]
+      survival_mirna$Survival[survival_mirna$PatientID==i]=survival_data$Survival[survival_data$PatientID==j]
+      survival_mirna$co[survival_mirna$PatientID==i]=1
+    }
+  }
+}
+#The row having no death/survival data is removed
+survival_mirna$co[is.na(survival_mirna$Death)| is.na(survival_mirna$Survival) | is.na(survival_mirna$PatientID)]<-0
+#Removing rows from sur data set where co == 0, i.e. those samples are not present in our methylation data
+survival_mirna<-survival_mirna[survival_mirna$co!=0,]
+#storing the common samples in the mirna and survival data in mirna_data1
+mirna_data1<-select(mirna_data, all_of(intersect(colnames(mirna_data),survival_mirna$PatientID)))
+```
+
+
+selecting the samples which are common in mrna and survival file
+
+```{r}
+survival_mrna<-data.frame(PatientID=intersect(survival_data$PatientID,colnames(mrna_data)))
+survival_mrna$Death=NA
+survival_mrna$Survival=NA
+survival_mrna$co=NA
+for(i in survival_mrna$PatientID)
+{
+  for(j in survival_data$PatientID)
+  {
+    if(i==j)
+    {
+      survival_mrna$Death[survival_mrna$PatientID==i]=survival_data$Death[survival_data$PatientID==j]
+      survival_mrna$Survival[survival_mrna$PatientID==i]=survival_data$Survival[survival_data$PatientID==j]
+      survival_mrna$co[survival_mrna$PatientID==i]=1
+    }
+  }
+}
+#The row having no death/survival data is removed
+survival_mrna$co[is.na(survival_mrna$Death)| is.na(survival_mrna$Survival) | is.na(survival_mrna$PatientID)]<-0
+#Removing rows from sur data set where co == 0, i.e. those samples are not present in our methylation data
+survival_mrna<-survival_mrna[survival_mrna$co!=0,]
+#storing the common samples in the mrna and survival data in mrna_data1
+mrna_data1<-select(mrna_data, all_of(intersect(colnames(mrna_data),survival_mrna$PatientID)))
+```
+
+
+Conducting DEseq based differentially expressed analysis on mirna data
+
+
+```{r}
+#mirna_data2<-as.matrix(mirna_data1)
+mirna_data2<-round(mirna_data1)
+mirna_data2<-as.matrix(mirna_data2)
+sur_mir<-data.frame(PatientID=survival_mirna$PatientID,Death=survival_mirna$Death)
+#row.names(sur_mir)<-survival_mirna$PatientID
+mirna_deseq<-DESeqDataSetFromMatrix(countData = mirna_data2[],colData = sur_mir,design = ~ Death)
+mirna_estimate<-estimateSizeFactors(mirna_deseq)
+mirna_des<-DESeq(mirna_estimate)
+mirna_result<-results(mirna_des)
+mirna_result
+mirna_result_filter <- mirna_result[which(mirna_result$padj < 0.1 & abs(mirna_result$log2FoldChange) > 1), ]
+mirna_result_filter
+mirna_data3<-data.frame(V1=mirna_data$V1,mirna_data1,mirna_result)
+mirna_data4<-mirna_data3[which(mirna_data3$padj < 0.1& abs(mirna_data3$log2FoldChange) > 1), ]
+write.csv(mirna_data4,file = "Differ_mirna_padj0.08_log2fold0.05.csv")
+```
+
+Building volcano plot for the differentially express data, with the labeling of the up and down regulated mirna 
+
+
+```{r}
+
+mirna_data3 <- mirna_data3[!is.na(mirna_data3$padj), ]
+
+
+mirna_data3$diffexp<-NaN
+res_gen<-mirna_data3$V1
+#res_gen
+mirna_data3$names<-NaN
+for(i in 1:nrow(mirna_data3))
+{
+  if(mirna_data3$padj[i]<0.1 & mirna_data3$log2FoldChange[i] > 1)
+  {
+    mirna_data3$diffexp[i]<-"UP"
+    mirna_data3$names[i]<-res_gen[i]
+  }
+  else if(mirna_data3$padj[i]<0.1 & mirna_data3$log2FoldChange[i] < -1)
+  {
+    mirna_data3$diffexp[i]<-"DOWN"
+    mirna_data3$names[i]<-res_gen[i]
+  }
+}
+
+
+ggplot(data.frame(mirna_data3$log2FoldChange,mirna_data3$padj),aes(x = mirna_data3$log2FoldChange,y = -log10(mirna_data3$padj),col=mirna_data3$diffexp,label = mirna_data3$names))+
+  geom_vline(xintercept = c(-1,1),col = "red", linetype ='dashed')+
+  geom_hline(yintercept = 0.1,col='blue',linetype='dashed')+
+  geom_point(alpha = 0.8, size = 2)+
+  scale_color_manual(values = c("darkblue", "grey", "darkred"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated"))+ 
+  labs(x = "Fold Change", y = "p-value", title = "Volcano Plot")+
+  geom_text_repel(aes(label = ifelse(mirna_data3$diffexp != "UP" & mirna_data3$diffexp != "DOWN", "",mirna_data3$names),max.overlaps = Inf))
+
+```
+
+
+Conducting Limma based differentially expressed analysis on mirna data
+
+```{r}
+
+mirna_limma<-as.matrix(mirna_data1)
+
+design_matrix<-model.matrix(~ Death, data = survival_mirna)
+normalized_data <- normalizeBetweenArrays(mirna_limma, method = "quantile")
+fit <- lmFit(normalized_data, design_matrix)
+eb_fit <- eBayes(fit)
+result_table <- topTable(eb_fit, number = 5000)
+result_table$adj.P.Val <- p.adjust(result_table$P.Value, method = "BH")
+mirna_limma1<-data.frame(V1=mirna_data$V1,mirna_data1,result_table)
+result_table[which(result_table$adj.P.Val<0.05)]
+```
+
+Building volcano plot for the visualization of the up and down regulated genes(DEseq worked better than Limma based on the distribution of data in volcano plot)
+
+```{r}
+
+mirna_limma1 <- mirna_limma1[!is.na(mirna_limma1$adj.P.Val), ]
+
+
+mirna_limma1$diffexp<-NaN
+res_gen<-mirna_limma1$V1
+#res_gen
+mirna_limma1$names<-NaN
+for(i in 1:nrow(mirna_limma1))
+{
+  if(mirna_limma1$adj.P.Val[i]<0.05 & mirna_limma1$logFC[i]/log(2) > 1)
+  {
+    mirna_limma1$diffexp[i]<-"UP"
+    mirna_limma1$names[i]<-res_gen[i]
+    print(mirna_limma1$names[i])
+  }
+  else if(mirna_limma1$adj.P.Val[i]<0.05 & mirna_limma1$logFC[i]/log(2) < -1)
+  {
+    mirna_limma1$diffexp[i]<-"DOWN"
+    mirna_limma1$names[i]<-res_gen[i]
+    print(mirna_limma1$names[i])
+  }
+}
+
+
+```
+
+
+
+```{r}
+
+ggplot(data.frame(mirna_limma1$logFC/log(2),mirna_limma1$adj.P.Val),aes(x = mirna_limma1$logFC/log(2),y = -log10(mirna_limma1$adj.P.Val),col=mirna_limma1$diffexp,label = mirna_limma1$names))+
+  geom_point(alpha = 0.8, size = 2)
+```
+
+
+```{r}
+
+ggplot(data.frame(mirna_limma1$logFC/log(2),mirna_limma1$adj.P.Val),aes(x = mirna_limma1$logFC/log(2),y = -log10(mirna_limma1$adj.P.Val),col=mirna_limma1$diffexp,label = mirna_limma1$names))+
+  geom_vline(xintercept = c(-1,1),col = "red", linetype ='dashed')+
+  geom_hline(yintercept = 0.1,col='blue',linetype='dashed')+
+  geom_point(alpha = 0.8, size = 2)+
+  scale_color_manual(values = c("darkblue", "grey", "darkred"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated"))+ 
+  labs(x = "Fold Change", y = "p-value", title = "Volcano Plot")+
+  geom_text_repel(aes(label = ifelse(mirna_limma1$diffexp != "UP" & mirna_limma1$diffexp != "DOWN", "",mirna_limma1$names),max.overlaps = Inf))
+
+```
+
+
+
+Conducting DEseq based differentially expressed analysis on the MRNA data
+
+
+
+```{r}
+mrna_data2<-round(mrna_data1)
+mrna_data2<-as.matrix(mrna_data2)
+sur_mrn<-data.frame(PatientID=survival_mrna$PatientID,Death=survival_mrna$Death)
+#row.names(sur_mir)<-survival_mirna$PatientID
+mrna_deseq<-DESeqDataSetFromMatrix(countData = mrna_data2,colData = sur_mrn,design = ~ Death)
+mrna_estimate<-estimateSizeFactors(mrna_deseq)
+mrna_des<-DESeq(mrna_estimate)
+mrna_result<-results(mrna_des)
+mrna_result
+mrna_result_filter <- mrna_result[which(mrna_result$padj < 0.05 & abs(mrna_result$log2FoldChange) > 1), ]
+mrna_result_filter
+mrna_data3<-data.frame(V1=mrna_data$V1,mrna_data1,mrna_result)
+mrna_data4<-mrna_data3[which(mrna_data3$padj < 0.05 & abs(mrna_data3$log2FoldChange) > 1), ]
+write.csv(mrna_data4,file = "Differ_mrna_padj0.05_log2fold1.csv")
+```
+
+Building volcano plot for the visualization of the up and down regulated mrna
+
+```{r}
+
+mrna_data3 <- mrna_data3[!is.na(mrna_data3$padj), ]
+
+
+mrna_data3$diffexp<-NaN
+res_gen<-mrna_data3$V1
+#res_gen
+mrna_data3$names<-NaN
+for(i in 1:nrow(mrna_data3))
+{
+  if(mrna_data3$padj[i]<0.05 & mrna_data3$log2FoldChange[i] > 1)
+  {
+    mrna_data3$diffexp[i]<-"UP"
+    mrna_data3$names[i]<-res_gen[i]
+    print(mrna_data3$names[i])
+  }
+  else if(mrna_data3$padj[i]<0.05 & mrna_data3$log2FoldChange[i] < -1)
+  {
+    mrna_data3$diffexp[i]<-"DOWN"
+    mrna_data3$names[i]<-res_gen[i]
+    print(mrna_data3$names[i])
+  }
+}
+
+
+ggplot(data.frame(mrna_data3$log2FoldChange,mrna_data3$padj),aes(x = mrna_data3$log2FoldChange,y = -log10(mrna_data3$padj),col=mrna_data3$diffexp,label = mrna_data3$names))+
+  geom_vline(xintercept = c(-0.1,0.1),col = "red", linetype ='dashed')+
+  geom_hline(yintercept = 0.1,col='blue',linetype='dashed')+
+  geom_point(alpha = 0.8, size = 2)+
+  scale_color_manual(values = c("darkblue", "grey", "darkred"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated"))+ 
+  labs(x = "Fold Change", y = "p-value", title = "Volcano Plot")+
+  geom_text_repel(aes(label = ifelse(mrna_data3$diffexp != "UP" & mrna_data3$diffexp != "DOWN", "",mrna_data3$names),max.overlaps = Inf))
+
+```
+
+
+
+
+```{r cars}
+
+```
+
+Reading methylation data and based on partitioning, conducting the analysis below first on the subset of first 3000 methylation cg probes. And after obtaining the desired analysis, moving on to the analysis of second partion, i.e. for 1000 to 4000 cg probes and then 2000 to 5000 cg probes. the selection of the partition is conducted manually by mentioning the subsetting while fetching the data.
+
+```{r}
+methyl<-data.frame(fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/methy"))
+
+#the beta values are converted into m values as the analysis of methylation data require m values
+mval<-log2(methyl[2:ncol(methyl)] / (1 - methyl[2:ncol(methyl)]))
+methyl[2:ncol(methyl)]<-mval
+#the subsetting of the data to conduct anaylsis subset wise
+#after the analysis of first 3000, the analysis of 1000 to 4000 and 2000 to 5000 cg probes is conducted.
+methyl<-methyl[1:3000,]
+sur<-data.frame(fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/survival"))
+
+#In the survival data there are many NA present, removing the samples that have NA in Death column
+sur$co=1
+sur$co[is.na(sur$Death)| is.na(sur$Survival) | is.na(sur$PatientID)]<-0
+sur<-sur[sur$co!=0,]
+
+#the synatax of the names of the samples in the survival data and methylation data is made same 
+
+for(i in 2: length(colnames(methyl)))
+{
+  colnames(methyl)[i]<-gsub("\\.", "-", colnames(methyl)[i])
+  #group$sample[i]<-gsub("\\.", "-", group$sample[i])
+  #print(colnames(mirna)[i])
+}
+#The samples which are common in the datasets
+all_common<-intersect(colnames(methyl),sur$PatientID)
+
+#Dataframe made up of the common samples in all three datasets
+methyl_com<-data.frame(methyl[,as.character(all_common)])
+sur_com<-sur[sur$PatientID %in% all_common,]
+sur_com<-sur_com[,1:3]
+methyl_com=data.frame(CPGnames=methyl$V1,methyl_com)
+row.names(methyl_com)=methyl_com$CPGnames
+methyl_com=methyl_com[,-1]
+for(i in 1:nrow(sur_com))
+{
+  if(sur_com$Death[i]==1)
+  {
+    sur_com$Group[i]='Dead'
+  }
+  else if(sur_com$Death[i]==0)
+  {
+    sur_com$Group[i]='Alive'
+  }
+}
+
+```
+
+
+Now we have common elements in all the three datasets
+
+
+
+```{r}
+cpgnames<-methyl[,1]
+#cpgnames
+probe<-data.frame(fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/GPL8490-65.txt"))
+#intersect(methyl$V1,probe$ID)
+```
+
+loading champ library for the methylation analysis using champ
+
+```{r}
+'if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("ChAMP")'
+library(ChAMP)
+```
+
+conducting champ analysis using m values
+
+```{r}
+champ_result<-data.frame(champ.DMP(beta = methyl_com, pheno = sur_com$Group,adjPVal = 1))
+```
+
+
+```{r}
+#champ_dataout<-result_table[which(result_table$adj.P.Val<0.1 & abs(result_table$l2fc) > 1), ]
+#write.csv(champ_result,file = "champgenes.csv")
+```
+
+
+
+
+THE VOLCANO PLOT FOR CHAMP NOT SO GOOD
+```{r}
+champ_result$l2fc<-champ_result$Dead_to_Alive.logFC/log(2)
+'champ_result$diffexp<-NaN
+for(i in 1:nrow(champ_result))
+{
+  if(champ_result$Dead_to_Alive.adj.P.Val[i]>0.1 & champ_result$l2fc[i] > 0.1)
+  {
+    champ_result$diffexp[i]<-"UP"
+  }
+  else if(champ_result$Dead_to_Alive.adj.P.Val[i]>0.1 & champ_result$l2fc[i] < -0.1)
+  {
+    champ_result$diffexp[i]<-"DOWN"
+  }
+}'
+```
+
+
+```{r}
+ggplot(data.frame(champ_result$l2fc,champ_result$Dead_to_Alive.adj.P.Val),aes(x = champ_result$l2fc,y = -log10(champ_result$Dead_to_Alive.adj.P.Val)))+
+  #geom_vline(xintercept = c(-0.025,0.025),col = "red", linetype ='dashed')+
+  #geom_hline(yintercept = 0.3,col='blue',linetype='dashed')+
+  geom_point(alpha = 0.8, size = 2)+
+  #scale_color_manual(values = c("#00AFBB", "grey", "#FFDB6D"), 
+                     #labels = c("Downregulated", "Not significant", "Upregulated"))+ 
+  labs(x = "Fold Change", y = "p-value", title = "Volcano Plot")
+
+```
+
+
+```{r}
+#champ_methyl<-data.frame(methyl_com[as.character(row.names(champ_result)),])
+#write.csv(champ_methyl,file = "Champ_methyl_padj0.194.csv")
+```
+
+
+conducting limma analysis for m values of the methylation data
+
+```{r}
+'if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma")'
+library(limma)
+```
+
+```{r}
+mirna_limma<-as.matrix(methyl_com)
+
+design_matrix<-model.matrix(~ Group, data = sur_com)
+normalized_data <- normalizeBetweenArrays(methyl_com, method = "quantile")
+fit <- lmFit(normalized_data, design_matrix)
+eb_fit <- eBayes(fit)
+result_table <- topTable(eb_fit, number = 3000)
+result_table$adj.P.Val <- p.adjust(result_table$P.Value, method = "BH")
+#reslt_final_methy<-data.frame()
+```
+
+
+building the volcano plot to visualize the differentally expressed cg probes
+
+```{r}
+result_table$l2fc<-result_table$logFC/log(2)
+result_table$diffexp<-NaN
+res_gen<-row.names(result_table)
+result_table$names<-NaN
+for(i in 1:nrow(result_table))
+{
+  if(result_table$adj.P.Val[i]<0.1 & result_table$l2fc[i] > 1)
+  {
+    result_table$diffexp[i]<-"UP"
+    result_table$names[i]<-res_gen[i]
+  }
+  else if(result_table$adj.P.Val[i]<0.1 & result_table$l2fc[i] < -1)
+  {
+    result_table$diffexp[i]<-"DOWN"
+    result_table$names[i]<-res_gen[i]
+  }
+}
+
+```
+
+
+```{r}
+
+ggplot(data.frame(result_table$l2fc,result_table$adj.P.Val),aes(x = result_table$l2fc,y = -log10(result_table$adj.P.Val),col=result_table$diffexp,label = result_table$names))+
+  geom_vline(xintercept = c(-1,1),col = "red", linetype ='dashed')+
+  geom_hline(yintercept = 0.1,col='blue',linetype='dashed')+
+  geom_point(alpha = 0.8, size = 2)+
+  scale_color_manual(values = c("darkblue", "grey", "darkred"), 
+                     labels = c("Downregulated", "Not significant", "Upregulated"))+ 
+  labs(x = "Fold Change", y = "p-value", title = "Volcano Plot")+
+  geom_text_repel(aes(label = ifelse(result_table$diffexp != "UP" & result_table$diffexp != "DOWN", "",result_table$names),max.overlaps = Inf))
+
+```
+
+
+
+```{r}
+#methyl_sort<-methyl[order(methyl$V1),]
+#row_methyl_com <- order(row.names(methyl_com))
+#row_methyl_com
+# Sort the dataframe based on the row index
+#methyl_com <- df[row_order, ]
+result_table<-rownames_to_column(result_table,var="V1")
+
+
+methdata_out<-data.frame(V1=methyl$V1,methyl_com)
+meth_sort<-methdata_out[order(methdata_out$V1),]
+result_table_sort<- result_table[order(result_table$V1),]
+
+combine_meth<-data.frame(methdata_out,result_table_sort)
+meth_dataout<-combine_meth[which(combine_meth$adj.P.Val<0.1 & abs(combine_meth$l2fc) > 1), ]
+write.csv(meth_dataout,file = "meth143.csv")
+```
+
+
+
+```{r}
+'num<-which(result_table$adj.P.Val<0.1)
+for(i in num)
+{
+  reslt_final_methy<-rbind(reslt_final_methy,result_table[i,])
+}
+result_methyl<-data.frame(methyl_com[as.character(row.names(reslt_final_methy)),])
+write.csv(result_methyl,file = "limma_methylpadj0.1logfc0.05.csv")'
+```
+
+
+
+
+```{r}
+diff_mir<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/Code/Final/Differ_mirna_padj0.1_log2fold1.csv")
+diff_mir<-diff_mir[,2:ncol(diff_mir)]
+diff_mrn<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/Code/Final/Differ_mrna_padj0.05_log2fold1.csv")
+diff_mrn<-diff_mrn[,2:ncol(diff_mrn)]
+diff_meth1<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/Code/Final/Differ_meth_padj0.1_log2fold1.csv")
+diff_meth1<-diff_meth1[,2:ncol(diff_meth1)]
+#diff_meth2<-fread("C:/Users/bless/OneDrive/MS_Studies/DS/Project pitch/liver/Code/limma_methylpadj0.1logfc0.05.csv")
+```
+
+
+Fetching the similar samples in mirna, mrna and methylation data in reference to survival data
+
+```{r}
+options(scipen = 999)
+
+allcom1<-intersect(colnames(diff_mir),colnames(diff_mrn))
+#allcom2<-intersect(colnames(diff_meth1),colnames(diff_meth2))
+allcom3<-intersect(allcom1,colnames(diff_meth1))
+#allcom3
+for(i in 1: nrow(sur_com))
+{
+  sur_com$PatientID[i]<-gsub("\\-", ".", sur_com$PatientID[i])
+  #group$sample[i]<-gsub("\\.", "-", group$sample[i])
+  #print(colnames(mirna)[i])
+}
+allcom4<-data.frame(sample=intersect(allcom3,sur_com$PatientID))
+#allcom4
+diff_meth1_1<-subset(diff_meth1, select = allcom4$sample)
+diff_meth1_1<-data.frame(V1=diff_meth1$V1,diff_meth1_1)
+write.csv(diff_meth1_1,file = "Diff_methyl.csv")
+#diff_meth2_1<-subset(diff_meth2,select = allcom4$sample)
+#diff_meth2_1<-data.frame(V1=diff_meth2$V1,diff_meth2_1)
+#write.csv(diff_meth2_1,file = "Diff_methyl_limma.csv")
+sur_com_1<-sur_com[sur_com$PatientID %in% colnames(diff_meth1_1),]
+sur_com_1<-sur_com_1[!duplicated(sur_com_1$PatientID), ]
+write.csv(sur_com_1,file = "survival_common1.csv")
+diff_mir_1<-subset(diff_mir, select = allcom4$sample)
+diff_mir_1<-data.frame(V1=diff_mir$V1,diff_mir_1)
+write.csv(diff_mir_1,file = "Diff_mirna.csv")
+diff_mrn_1<-subset(diff_mrn, select = allcom4$sample)
+diff_mrn_1<-data.frame(V1=diff_mrn$V1,diff_mrn_1)
+write.csv(diff_mrn_1,file = "Diff_mrna.csv")
+```
+
+```{r}
+#'arg' should be one of "none", "scale", "quantile", "Aquantile", "Gquantile", "Rquantile", "Tquantile", "vsn", "cyclicloess"
+#normalized_mir_data <- normalizeBetweenArrays(diff_mir_1, method = "quantile")
+```
+
+
+```{r}
+#intersect(diff_meth1_1$V1,row.names(reslt_final_methy))
+```
+
+```{r}
+'vv<-colnames(diff_meth1_1)
+vv
+for(i in 1:nrow(sur_com_1))
+{
+  for(j in 1:nrow(vv))
+  {
+    print(sur_com_1$PatientID[i])
+  }
+}
+for(j in 1:nrow(vv))
+{
+  print(j)
+}'
+
+```
+
+
+
+
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
